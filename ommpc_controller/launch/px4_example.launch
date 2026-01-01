@@ -1,0 +1,8 @@
+<launch>
+
+<node pkg="ommpc_controller" type="ommpc_controller_example_node" name="ommpc_controller" output="screen">
+        <rosparam command="load" file="$(find ommpc_controller)/config/params.yaml" />
+	</node>
+<node pkg="rqt_reconfigure" type="rqt_reconfigure" name="rqt_reconfigure">
+  </node>
+</launch>

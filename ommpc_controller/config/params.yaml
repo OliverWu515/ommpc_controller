@@ -1,0 +1,46 @@
+takeoff_height: 0.8
+takeoff_land_speed: 0.2
+
+ref_txt:
+    enable: true
+    time_step: 0.01
+    ref_filename: "/traj/circle.txt"
+
+hover_percentage: 0.705
+
+# NMPC
+use_fix_yaw: true
+use_trajectory_ending_pos: true
+
+MPC_params:
+    step_T: 0.01
+    # Cost on states
+    # 8 steps
+    # Q_pos_xy:   5000.0    # Cost for horizontal positon error //default: 200     0.5 
+    # Q_pos_z:  5000.0    # Cost for horizontal positon error //default: 200     0.5 
+    # Q_attitude_rp:  40.0   # Cost for attitude error           //default: 50     0.1
+    # Q_attitude_yaw:  40.0    # Cost for attitude error           //default: 50     0.1
+    # Q_velocity:  40.0   # Cost for velocity error           //default: 10    0.05 
+    # 20 steps
+    Q_pos_xy:   1000.0    # Cost for horizontal positon error //default: 200     0.5 
+    Q_pos_z:  800.0    # Cost for horizontal positon error //default: 200     0.5 
+    Q_attitude_rp:  40.0   # Cost for attitude error           //default: 50     0.1
+    Q_attitude_yaw:  40.0    # Cost for attitude error           //default: 50     0.1
+    Q_velocity:  20.0   # Cost for velocity error           //default: 10    0.05
+    # 60 steps
+    # Q_pos_xy:   8.0    # Cost for horizontal positon error //default: 200     0.5 
+    # Q_pos_z:  100.0    # Cost for horizontal positon error //default: 200     0.5 
+    # Q_attitude_rp:  10.0   # Cost for attitude error           //default: 50     0.1
+    # Q_attitude_yaw:  10.0    # Cost for attitude error           //default: 50     0.1
+    # Q_velocity:  0.1   # Cost for velocity error           //default: 10    0.05
+    # Cost on inputs
+    R_thrust:    0.5  # Cost on thrust input            //default: 1
+    R_pitchroll:  1.2      # Cost on pitch and roll rate
+    R_yaw:        0.6      # Cost on yaw rate
+    state_cost_exponential: 0.5     # Scaling for state costs
+    input_cost_exponential: 0.5     # scaling for input costs
+    # Limits for inputs
+    max_bodyrate_xy:    3.0       #  [rad/s]
+    max_bodyrate_z:     2.0       #  [rad/s]
+    min_thrust:         1.0       #  [m/s^2]
+    max_thrust:         30.0      #  [m/s^2]
