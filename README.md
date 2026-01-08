@@ -166,6 +166,12 @@ rosservice call /mavros/set_mode 0 "MANUAL"
 ```
 to return to manual control mode, or you can proceed directly to execute other commands.
 
+**Important:**
+
+The pose of Odometry is defined as forward x, left y, upward z (ENU). The nose of the aircraft points in the positive x-axis direction, and the throttle thrust direction is along the positive z-axis. They must be strictly aligned. If the coordinate frame is NED instead of ENU, the `enu_frame_` parameter in the `OMMPC_EXAMPLE` class must be set to `false`! 
+
+The definition of velocity in Odometry differs from the [ROS official documentation](http://docs.ros.org/en/noetic/api/nav_msgs/html/msg/Odometry.html). The ROS official definition expresses velocity in the body frame, but most open-source odometry systems define velocity relative to the world frame. This controller also defaults to defining velocity in the world frame. If the velocity you are using is defined in the body frame, set `vel_in_body_` to true in the `init` method of the `OMMPC_EXAMPLE` class (**for example, when using Gazebo for simulation**). Otherwise, set it to false (**for example, when using open-source odometry for realworld experiments**).
+
 ## Theory and parameters
 
 ### Reading text trajectories

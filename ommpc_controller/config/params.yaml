@@ -40,7 +40,7 @@ MPC_params:
     state_cost_exponential: 0.5     # Scaling for state costs
     input_cost_exponential: 0.5     # scaling for input costs
     # Limits for inputs
-    max_bodyrate_xy:    3.0       #  [rad/s]
-    max_bodyrate_z:     2.0       #  [rad/s]
+    max_bodyrate_xy:    6.0       #  [rad/s]
+    max_bodyrate_z:     4.0       #  [rad/s]
     min_thrust:         1.0       #  [m/s^2]
     max_thrust:         30.0      #  [m/s^2]
