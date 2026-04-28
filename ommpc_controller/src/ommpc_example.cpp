@@ -84,7 +84,9 @@ private:
         cmd.body_rate.x = output.bodyrates(0);
         cmd.body_rate.y = output.bodyrates(1);
         cmd.body_rate.z = output.bodyrates(2);
-        cmd.thrust = output.thrust;
+		if (output.thrust >= 0.9) cmd.thrust = 0.9;
+		else if (output.thrust <= 0.04) cmd.thrust = 0.04;
+        else cmd.thrust = output.thrust;
         cmd.type_mask = mavros_msgs::AttitudeTarget::IGNORE_ATTITUDE;
         cmd_pub_.publish(cmd);
     }
@@ -139,7 +141,7 @@ private:
                 {
                     set_hov_with_odom();
                     exec_traj_state_ = TAKEOFF;
-                    ROS_INFO("[MPCctrl] Receive the trajectory. HOVER --> TAKEOFF");
+                    ROS_INFO("[MPCctrl] HOVER --> TAKEOFF");
                 }
                 ret = true;
             }
@@ -149,7 +151,7 @@ private:
                 set_hov_with_odom();
                 ret = true;
                 exec_traj_state_ = LAND;
-                ROS_INFO("[MPCctrl] Receive the trajectory. HOVER --> LAND");
+                ROS_INFO("[MPCctrl] HOVER --> LAND");
             }
             else if (now_time >= trajectory_data_.total_traj_start_time &&
                 now_time <= trajectory_data_.total_traj_end_time &&
@@ -273,14 +275,14 @@ private:
                 quad_positions_[i] = Eigen::Vector3d(
                                     hover_pose_(0),
                                     hover_pose_(1),
-                                    altitude);
+                                    hover_pose_(2) + altitude);
                 quad_velocities_[i] = Eigen::Vector3d(0.0, 0.0, param_.takeoff_land_speed);
                 yaws_[i] = hover_pose_(4);
             }
             double yaw_now = get_yaw_from_quaternion(odom_data_.q);
             ommpc_controller_.setTextReference(quad_positions_, quad_velocities_, odom_data_, yaw_now, yaws_);
             ret = ommpc_controller_.execMPC(odom_data_, u);
-            if (odom_data_.p(2) > param_.takeoff_height)
+            if (odom_data_.p(2) > hover_pose_(2) + param_.takeoff_height)
             {
                 exec_traj_state_ = HOVER;
                 set_hov_with_odom();
@@ -292,18 +294,18 @@ private:
         case LAND:
         {
             land_trigger_ = false;
-            const double land_height = -0.5;
+            const double land_height = -3.0;
             double altitude;
             auto now_time = ros::Time::now();
             for (int i = 0; i < nstep + 1; ++i)
             {
                 altitude = std::max( 
-                    hover_pose_(2) + (ros::Time::now().toSec() - start_takeoff_land_time + i * param_.step_T) * (-param_.takeoff_land_speed), 
+                    (ros::Time::now().toSec() - start_takeoff_land_time + i * param_.step_T) * (-param_.takeoff_land_speed), 
                     land_height);
                 quad_positions_[i] = Eigen::Vector3d(
                                     hover_pose_(0),
                                     hover_pose_(1),
-                                    altitude);
+                                    hover_pose_(2) + altitude);
                 quad_velocities_[i] = Eigen::Vector3d(0.0, 0.0, -param_.takeoff_land_speed);
                 yaws_[i] = hover_pose_(4);
             }
@@ -311,11 +313,11 @@ private:
             ommpc_controller_.setTextReference(quad_positions_, quad_velocities_, odom_data_, yaw_now, yaws_);
             ret = ommpc_controller_.execMPC(odom_data_, u);
             static double last_trial_time = 0; // Avoid too frequent calls
-            if (odom_data_.v.norm() < 0.1 && altitude < -0.4)
+            if (odom_data_.v.norm() < 0.1 && altitude < -1.5)
             {
 				if (now_time.toSec() - last_trial_time > 1.0)
 				{
-					if (toggle_arm_disarm(false)) // disarm
+					if (toggle_arm_disarm(false)) // try to disarm
 					{
 						exec_traj_state_ = HOVER;
                         set_hov_with_odom();
@@ -505,7 +507,7 @@ public:
 
         ommpc_controller_.init(param_);
 
-        hover_pose_ << 0, 0, 0.0, 0;
+        hover_pose_ << 0.0, 0.0, 0.0, 0.0;
 
         exec_timer_ = nh.createTimer(ros::Duration(0.01), &OMMPC_EXAMPLE::execFSMCallback, this);
     }
