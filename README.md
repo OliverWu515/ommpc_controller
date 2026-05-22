@@ -1,3 +1,5 @@
+> **Notice (2026-05-22):** I just released a ROS-decoupled refactoring branch (`refact-decouple`). Users and contributors are welcome to try it, report issues, and help improve the new modular controller architecture.
+
 # OMMPC-Controller
 
 <!-- TOC -->

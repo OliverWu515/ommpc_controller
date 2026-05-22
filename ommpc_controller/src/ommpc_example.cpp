@@ -277,7 +277,7 @@ private:
                                     hover_pose_(1),
                                     hover_pose_(2) + altitude);
                 quad_velocities_[i] = Eigen::Vector3d(0.0, 0.0, param_.takeoff_land_speed);
-                yaws_[i] = hover_pose_(4);
+                yaws_[i] = hover_pose_(3);
             }
             double yaw_now = get_yaw_from_quaternion(odom_data_.q);
             ommpc_controller_.setTextReference(quad_positions_, quad_velocities_, odom_data_, yaw_now, yaws_);
@@ -307,7 +307,7 @@ private:
                                     hover_pose_(1),
                                     hover_pose_(2) + altitude);
                 quad_velocities_[i] = Eigen::Vector3d(0.0, 0.0, -param_.takeoff_land_speed);
-                yaws_[i] = hover_pose_(4);
+                yaws_[i] = hover_pose_(3);
             }
             double yaw_now = get_yaw_from_quaternion(odom_data_.q);
             ommpc_controller_.setTextReference(quad_positions_, quad_velocities_, odom_data_, yaw_now, yaws_);
