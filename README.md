@@ -168,6 +168,8 @@ rosservice call /mavros/set_mode 0 "MANUAL"
 ```
 to return to manual control mode, or you can proceed directly to execute other commands.
 
+The finite state machine (FSM) that governs the controller's behavior is documented in [misc/state_machine.txt](misc/state_machine.txt). It describes all state transitions (HOVER, TAKEOFF, LAND, POLY_TRAJ, POINTS), global rules for MPC failure recovery, trigger auto-reset, and safe output handling.
+
 **Important:**
 
 The pose of Odometry is defined as forward x, left y, upward z (ENU). The nose of the aircraft points in the positive x-axis direction, and the throttle thrust direction is along the positive z-axis. They must be strictly aligned. If the coordinate frame is NED instead of ENU, the `enu_frame_` parameter in the `OMMPC_EXAMPLE` class must be set to `false`! 

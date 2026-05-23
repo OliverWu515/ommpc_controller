@@ -38,6 +38,8 @@ private:
     bool is_command_mode_ = false;
     bool takeoff_enabled_ = false, last_takeoff_enabled_ = false, takeoff_trigger_ = false;
     bool land_enabled_ = false, last_land_enabled_ = false, land_trigger_ = false;
+    bool has_takeoff_ = false, has_land_ = true;
+    int consecutive_failures_ = 0;
     double start_takeoff_land_time;
     bool enu_frame_, vel_in_body_;
     Eigen::Vector4d hover_pose_;
@@ -65,6 +67,7 @@ private:
 
     void stateChangeCallback(ommpc_controller::fsm_changeConfig &config, uint32_t level){
         last_takeoff_enabled_ = takeoff_enabled_;
+        last_land_enabled_ = land_enabled_;
         land_enabled_ = config.land_enabled;
         is_command_mode_ = config.command_or_hover;
         takeoff_enabled_ = config.takeoff_enabled;
@@ -119,10 +122,14 @@ private:
     }
 
     void execFSMCallback(const ros::TimerEvent &e){
+        if (!ros::ok())
+        {
+            return;
+        }
         exec_timer_.stop();
 
         Controller_Output_t u;
-        bool ret;
+        bool ret = false;
         ros::Time now_time = ros::Time::now();
         // std::cout << "exec_traj_state_:" << exec_traj_state_ << std::endl;
         // std::cout << "traj_queue size:" << trajectory_data_.traj_queue.size() << std::endl;
@@ -134,8 +141,15 @@ private:
         {
         case HOVER:
         {
-            if (takeoff_trigger_ && state_.mode == mavros_msgs::State::MODE_PX4_OFFBOARD)
+            if (takeoff_trigger_ && !has_takeoff_)
             {
+                if (state_.mode != mavros_msgs::State::MODE_PX4_OFFBOARD)
+                {
+                    ROS_ERROR("[MPCctrl] Not in OFFBOARD mode! Cannot takeoff.");
+                    takeoff_trigger_ = false;
+                    ret = true;
+                    break;
+                }
                 start_takeoff_land_time = ros::Time::now().toSec();
                 if (toggle_arm_disarm(true))
                 {
@@ -145,15 +159,23 @@ private:
                 }
                 ret = true;
             }
-            else if (land_trigger_ && state_.mode == mavros_msgs::State::MODE_PX4_OFFBOARD)
+            else if (land_trigger_ && !has_land_)
             {
+                if (state_.mode != mavros_msgs::State::MODE_PX4_OFFBOARD)
+                {
+                    ROS_ERROR("[MPCctrl] Not in OFFBOARD mode! Cannot land.");
+                    land_trigger_ = false;
+                    ret = true;
+                    break;
+                }
                 start_takeoff_land_time = ros::Time::now().toSec();
                 set_hov_with_odom();
                 ret = true;
                 exec_traj_state_ = LAND;
                 ROS_INFO("[MPCctrl] HOVER --> LAND");
             }
-            else if (now_time >= trajectory_data_.total_traj_start_time &&
+            else if (consecutive_failures_ == 0 &&
+                now_time >= trajectory_data_.total_traj_start_time &&
                 now_time <= trajectory_data_.total_traj_end_time &&
                 trajectory_data_.exec_traj == 1 && (!trajectory_data_.traj_queue.empty())
                 && is_command_mode_ && state_.mode == mavros_msgs::State::MODE_PX4_OFFBOARD)
@@ -170,7 +192,8 @@ private:
                 exec_traj_state_ = POLY_TRAJ;
                 ROS_INFO("[MPCctrl] Receive the trajectory. HOVER --> POLY_TRAJ");
             }
-            else if (param_.use_ref_txt && is_command_mode_ && state_.mode == mavros_msgs::State::MODE_PX4_OFFBOARD)
+            else if (consecutive_failures_ == 0 &&
+                param_.use_ref_txt && is_command_mode_ && state_.mode == mavros_msgs::State::MODE_PX4_OFFBOARD)
             {
                 exec_traj_state_ = POINTS;
                 ROS_INFO("[MPCctrl] Start executing traj from txt. HOVER --> POINTS");
@@ -180,10 +203,17 @@ private:
                 ommpc_controller_.setTextReference(quad_positions_, quad_velocities_, odom_data_, yaw_now, yaws_);
                 ret = ommpc_controller_.execMPC(odom_data_, u);
             }
-            else
+            else if (state_.mode == mavros_msgs::State::MODE_PX4_OFFBOARD && state_.armed == true)
             {
                 ommpc_controller_.setHoverReference(hover_pose_);
                 ret = ommpc_controller_.execMPC(odom_data_, u);
+            }
+            else
+            {
+                // Not in offboard: skip MPC but keep publishing so PX4 can enter offboard
+                u.bodyrates.setZero();
+                u.thrust = 0.0;
+                ret = true;
             }
         }
         break;
@@ -287,6 +317,8 @@ private:
                 exec_traj_state_ = HOVER;
                 set_hov_with_odom();
                 ROS_INFO("[MPCctrl] TAKEOFF succeeded. TAKEOFF --> HOVER");
+                has_takeoff_ = true;
+                has_land_ = false;
             }
         }
         break;
@@ -315,6 +347,8 @@ private:
             static double last_trial_time = 0; // Avoid too frequent calls
             if (odom_data_.v.norm() < 0.1 && altitude < -1.5)
             {
+                has_land_ = true;
+                has_takeoff_ = false;
 				if (now_time.toSec() - last_trial_time > 1.0)
 				{
 					if (toggle_arm_disarm(false)) // try to disarm
@@ -332,6 +366,7 @@ private:
 
         default:
         {
+            ret = false;
             exec_traj_state_ = HOVER;
             ROS_ERROR("[MPCctrl] Unknown exec_traj_state_! Jump to HOVER.");
         }
@@ -341,19 +376,34 @@ private:
 
         if (ret)
         {
+            consecutive_failures_ = 0;
             send_cmd(u);
         }
         else
         {
+            consecutive_failures_++;
             exec_traj_state_ = HOVER;
+            set_hov_with_odom();
             ROS_ERROR("[MPCctrl] Numerical error!");
         }
-        
-        if(state_.mode == mavros_msgs::State::MODE_PX4_OFFBOARD && state_.armed == true)
+
+        if (exec_traj_state_ != LAND)
+        {
+            land_trigger_ = false;
+        }
+        if (exec_traj_state_ != TAKEOFF)
+        {
+            takeoff_trigger_ = false;
+        }
+
+        if(state_.mode == mavros_msgs::State::MODE_PX4_OFFBOARD && state_.armed == true && exec_traj_state_ != TAKEOFF && exec_traj_state_ != LAND)
         {
             ommpc_controller_.estimateThrustModel(imu_data_.a);
         }
-        exec_timer_.start();
+        if (ros::ok())
+        {
+            exec_timer_.start();
+        }
     }
 
     bool readDataFromFile()

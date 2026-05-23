@@ -1,0 +1,115 @@
+# OMMPC Controller Example FSM
+
+Transitions from HOVER:
+
+  Takeoff:  takeoff_trigger_ && !has_takeoff_ && OFFBOARD → arm first, then switch
+  Land:     land_trigger_   && !has_land_   && OFFBOARD → switch directly
+  PolyTraj: consecutive_failures_==0 && exec_traj==1 && within time window
+            && is_command_mode_ && OFFBOARD && armed
+  Points:   consecutive_failures_==0 && use_ref_txt && is_command_mode_
+            && OFFBOARD && armed
+  Hover:    OFFBOARD && armed → run MPC, publish hover command
+  Idle:     none of the above (not in OFFBOARD) → skip MPC, publish safe command
+            (bodyrates=0, thrust=0, clamped to 0.04 by send_cmd)
+
+Returns to HOVER:
+
+  TAKEOFF    →  altitude >= takeoff_height  (has_takeoff_=T, has_land_=F)
+  LAND       →  v<0.1 && alt<-1.5 → disarm  (has_land_=T, has_takeoff_=F)
+  POLY_TRAJ  →  traj expired / outside window (exec_traj=0)
+  POINTS     →  !is_command_mode_
+  *any*      →  MPC failure (consecutive_failures_++, hover_pose updated from odom)
+
+
+                          ┌──────────────────────────────────────────────────┐
+                          │                    HOVER (initial)               │
+                          │                                                  │
+                          │  takeoff cond ──▶ arm ──▶ TAKEOFF                │
+                          │  land cond    ──▶ LAND                           │
+                          │  traj cond    ──▶ POLY_TRAJ                      │
+                          │  txt cond     ──▶ POINTS                         │
+                          │  hover cond   ──▶ self (MPC hover)               │
+                          │  idle         ──▶ self (safe cmd, no MPC)        │
+                          └──┬─────────────────┬───────────────┬─────────────┘
+                             │                 │               │
+                             ▼                 ▼               ▼
+                    ┌────────────────┐ ┌────────────────┐ ┌──────────────┐ ┌──────────────┐
+                    │    TAKEOFF     │ │      LAND      │ │  POLY_TRAJ   │ │    POINTS    │
+                    │                │ │                │ │              │ │              │
+                    │ trigger=false  │ │ trigger=false  │ │ traj expired │ │ !cmd → HOVER │
+                    │                │ │                │ │  → HOVER     │ │              │
+                    │ alt >= height  │ │ v<0.1 &&       │ │ (exec_traj=0)│ │ cmd → self   │
+                    │ → HOVER        │ │ alt<-1.5       │ │              │ │              │
+                    │ (has_takeoff_  │ │ → disarm       │ │ traj valid   │ │              │
+                    │  =T,           │ │ → HOVER        │ │  → self      │ │              │
+                    │  has_land_=F)  │ │ (has_land_=T,  │ │              │ │              │
+                    │                │ │  has_takeoff_  │ │              │ │              │
+                    │ alt < height   │ │  =F)           │ │              │ │              │
+                    │ → self         │ │                │ │              │ │              │
+                    │                │ │ v>=0.1 ||      │ │              │ │              │
+                    │                │ │ alt>=-1.5      │ │              │ │              │
+                    │                │ │ → self         │ │              │ │              │
+                    └───────┬────────┘ └───────┬────────┘ └──────┬───────┘ └──────┬───────┘
+                            │                  │                 │                 │
+                      ⑦ MPC fail         ⑦ MPC fail        ⑦ MPC fail        ⑦ MPC fail
+                            │                  │                 │                 │
+                            └──────────────────┼─────────────────┼─────────────────┘
+                                               │                 │
+                                               └────────┬────────┘
+                                                        ▼
+                                            ┌───────────────────────┐
+                                            │        HOVER          │
+                                            │                       │
+                                            │ consecutive_failures_ │
+                                            │ gate blocks re-entry  │
+                                            │ to POLY_TRAJ / POINTS │
+                                            │ until counter → 0.    │
+                                            └───────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════
+                     Global Rules (apply in every state)
+═══════════════════════════════════════════════════════════════════
+
+  ⑦  [MPC failure] (ret == false)
+  ┌─────────────────────────────────────────────────────────────┐
+  │ 1. consecutive_failures_++                                  │
+  │ 2. set_hov_with_odom()  ← update hover_pose from current   │
+  │    odometry so the aircraft holds its last position         │
+  │ 3. transition to HOVER                                      │
+  │                                                             │
+  │ HOVER's traj/txt gates require consecutive_failures_==0.    │
+  │ The counter resets only after a successful hover MPC        │
+  │ solve, preventing bounce after failure.                     │
+  └─────────────────────────────────────────────────────────────┘
+
+  [Trigger auto-reset] (end of every callback)
+  ┌─────────────────────────────────────────────────────────────┐
+  │ if (exec_traj_state_ != LAND)    land_trigger_    = false;  │
+  │ if (exec_traj_state_ != TAKEOFF) takeoff_trigger_ = false;  │
+  │                                                             │
+  │ After HOVER→TAKEOFF: land_trigger_ cleared.                 │
+  │ After HOVER→LAND: takeoff_trigger_ cleared.                 │
+  │ After returning to other states: both triggers cleared.     │
+  └─────────────────────────────────────────────────────────────┘
+
+  [Safe output] (every cycle publishes AttitudeTarget)
+  ┌─────────────────────────────────────────────────────────────┐
+  │ ret=true  → send_cmd(u) — publish MPC-solved u              │
+  │ idle      → send_cmd(u=(bodyrates=0, thrust=0→clamped 0.04))│
+  │ ret=false → skip publish (will retry hover MPC next cycle)   │
+  └─────────────────────────────────────────────────────────────┘
+
+  [Thrust estimation gating]
+  ┌─────────────────────────────────────────────────────────────┐
+  │ Only active: OFFBOARD && armed && !TAKEOFF && !LAND         │
+  │ Avoids polluting thrust model during takeoff/land transients │
+  └─────────────────────────────────────────────────────────────┘
+
+  [Ctrl+C graceful shutdown]
+  ┌─────────────────────────────────────────────────────────────┐
+  │ Callback entry: if (!ros::ok()) return;                     │
+  │ Timer restart:  if (ros::ok()) exec_timer_.start();         │
+  │ Avoids re-arming the timer after SIGINT, allowing ros::     │
+  │ spin() to return cleanly.                                   │
+  └─────────────────────────────────────────────────────────────┘
