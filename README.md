@@ -168,13 +168,13 @@ rosservice call /mavros/set_mode 0 "MANUAL"
 ```
 to return to manual control mode, or you can proceed directly to execute other commands.
 
-The finite state machine (FSM) that governs the controller's behavior is documented in [misc/state_machine.txt](misc/state_machine.txt). It describes all state transitions (HOVER, TAKEOFF, LAND, POLY_TRAJ, POINTS), global rules for MPC failure recovery, trigger auto-reset, and safe output handling.
+The finite state machine (FSM) that governs the controller's behavior is documented in [misc/state_machine.txt](misc/state_machine.txt). It describes all state transitions (HOVER, TAKEOFF, LAND, POLY_TRAJ, POINTS), global rules for MPC failure recovery with a consecutive-failure counter to prevent state bounce, automatic trigger cleanup, safe output during idle, and thrust estimation gating during takeoff and landing.
 
 **Important:**
 
-The pose of Odometry is defined as forward x, left y, upward z (ENU). The nose of the aircraft points in the positive x-axis direction, and the throttle thrust direction is along the positive z-axis. They must be strictly aligned. If the coordinate frame is NED instead of ENU, the `enu_frame_` parameter in the `OMMPC_EXAMPLE` class must be set to `false`! 
+The pose of Odometry is defined as forward x, left y, upward z (ENU). The nose of the aircraft points in the positive x-axis direction, and the throttle thrust direction is along the positive z-axis. They must be strictly aligned. If the coordinate frame is NED instead of ENU, the `enu_frame` parameter in `params.yaml` must be set to `false`! 
 
-The definition of velocity in Odometry differs from the [ROS official documentation](http://docs.ros.org/en/noetic/api/nav_msgs/html/msg/Odometry.html). The ROS official definition expresses velocity in the body frame, but most open-source odometry systems define velocity relative to the world frame. This controller also defaults to defining velocity in the world frame. If the velocity you are using is defined in the body frame, set `vel_in_body_` to true in the `init` method of the `OMMPC_EXAMPLE` class (**for example, when using Gazebo for simulation**). Otherwise, set it to false (**for example, when using open-source odometry for realworld experiments**).
+The definition of velocity in Odometry differs from the [ROS official documentation](http://docs.ros.org/en/noetic/api/nav_msgs/html/msg/Odometry.html). The ROS official definition expresses velocity in the body frame, but most open-source odometry systems define velocity relative to the world frame. This controller also defaults to defining velocity in the world frame. If the velocity you are using is defined in the body frame, set `vel_in_body` in `params.yaml` to true (**for example, when using Gazebo for simulation**). Otherwise, set it to false (**for example, when using open-source odometry for realworld experiments**).
 
 ## Theory and parameters
 
@@ -252,11 +252,10 @@ $$
 **Related parameters**  
 hover_percentage: Used to set the initial value of $T_a$ 
 
-
 ## Acknowledgment
 
 - [Huizhe Li](https://github.com/haiyu1020) and [Yuhao Fang](https://github.com/fweiI/) for instruction of parameter tuning and basic structures of code
 - [Autotrans](https://github.com/HKUST-Aerial-Robotics/AutoTrans/tree/main/) and [RPG MPC](https://github.com/uzh-rpg/rpg_mpc) for providing examples of setting reference for MPC
 - [SUPER](https://github.com/hku-mars/Super) for providing supporting material including derivation of OMMPC
 - [GCOPTER](https://github.com/ZJU-FAST-Lab/GCOPTER) and [SE(3) Controller](https://github.com/HITSZ-MAS/se3_controller) for providing hints of differential flatness with Hopf fibration
-- [Fast-Drone-250](https://github.com/ZJU-FAST-Lab/Fast-Drone-250/) for providing examples of using Finite State Machine (FSM) to manage states of quadrotors
+- [Fast-Drone-250](https://github.com/ZJU-FAST-Lab/Fast-Drone-250/) for providing examples of using Finite State Machine (FSM) to manage states of the quadrotor

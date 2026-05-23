@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>ommpc_core</name>
+  <version>0.0.0</version>
+  <description>Core MPC controller logic (ROS-independent)</description>
+
+  <maintainer email="oliverwu2003@foxmail.com">oliverwu</maintainer>
+
+  <license>TODO</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <!-- System dependencies: Eigen3 and OSQP must be installed separately.
+       They are not available as rosdep keys in standard ROS distributions.
+       OSQP: https://osqp.org/docs/get_started/ -->
+  <build_depend>eigen3</build_depend>
+  <build_export_depend>eigen3</build_export_depend>
+  <exec_depend>eigen3</exec_depend>
+
+  <export>
+  </export>
+</package>

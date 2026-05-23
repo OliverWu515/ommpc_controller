@@ -6,11 +6,11 @@ Transitions from HOVER:
   Land:     land_trigger_   && !has_land_   && OFFBOARD → switch directly
   PolyTraj: consecutive_failures_==0 && exec_traj==1 && within time window
             && is_command_mode_ && OFFBOARD && armed
-  Points:   consecutive_failures_==0 && use_ref_txt && is_command_mode_
+  Points:   consecutive_failures_==0 && text_reference.enable && is_command_mode_
             && OFFBOARD && armed
   Hover:    OFFBOARD && armed → run MPC, publish hover command
   Idle:     none of the above (not in OFFBOARD) → skip MPC, publish safe command
-            (bodyrates=0, thrust=0, clamped to 0.04 by send_cmd)
+            (bodyrates=0, thrust=0, clamped to 0.04 by publish function)
 
 Returns to HOVER:
 
@@ -21,16 +21,16 @@ Returns to HOVER:
   *any*      →  MPC failure (consecutive_failures_++, hover_pose updated from odom)
 
 
-                          ┌──────────────────────────────────────────────────┐
-                          │                    HOVER (initial)               │
-                          │                                                  │
-                          │  takeoff cond ──▶ arm ──▶ TAKEOFF                │
-                          │  land cond    ──▶ LAND                           │
-                          │  traj cond    ──▶ POLY_TRAJ                      │
-                          │  txt cond     ──▶ POINTS                         │
-                          │  hover cond   ──▶ self (MPC hover)               │
-                          │  idle         ──▶ self (safe cmd, no MPC)        │
-                          └──┬─────────────────┬───────────────┬─────────────┘
+                          ┌─────────────────────────────────────────────-────────┐
+                          │                    HOVER (initial)                   │
+                          │                                                      │
+                          │  takeoff cond ──▶ arm ──▶ TAKEOFF                    │
+                          │  land cond    ──▶ LAND                               │
+                          │  traj cond    ──▶ POLY_TRAJ                          │
+                          │  txt cond     ──▶ POINTS                             │
+                          │  hover cond   ──▶ self (MPC hover)                   │
+                          │  idle         ──▶ self (safe cmd, no MPC)            │
+                          └──┬─────────────────┬───────────────┬─────────────────┘
                              │                 │               │
                              ▼                 ▼               ▼
                     ┌────────────────┐ ┌────────────────┐ ┌──────────────┐ ┌──────────────┐
@@ -74,7 +74,7 @@ Returns to HOVER:
   ⑦  [MPC failure] (ret == false)
   ┌─────────────────────────────────────────────────────────────┐
   │ 1. consecutive_failures_++                                  │
-  │ 2. set_hov_with_odom()  ← update hover_pose from current   │
+  │ 2. setHoverWithOdom()  ← update hover_pose from current     │
   │    odometry so the aircraft holds its last position         │
   │ 3. transition to HOVER                                      │
   │                                                             │
@@ -95,8 +95,8 @@ Returns to HOVER:
 
   [Safe output] (every cycle publishes AttitudeTarget)
   ┌─────────────────────────────────────────────────────────────┐
-  │ ret=true  → send_cmd(u) — publish MPC-solved u              │
-  │ idle      → send_cmd(u=(bodyrates=0, thrust=0→clamped 0.04))│
+  │ ret=true  → publish MPC-solved u                            │
+  │ idle      → publish u=(bodyrates=0, thrust=0→clamped 0.04)  │
   │ ret=false → skip publish (will retry hover MPC next cycle)   │
   └─────────────────────────────────────────────────────────────┘
 

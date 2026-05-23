@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Eigen/Eigen>
-#include <iostream>
 #include <vector>
 
 class SO3 {
