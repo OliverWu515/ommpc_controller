@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Eigen/Eigen>
+#include <Eigen/Geometry>
 #include <iostream>
 #include <vector>
 
@@ -35,13 +36,16 @@ public:
     }
 
     static Eigen::Vector3d log(const Eigen::Matrix3d& R) {
-        double theta = acos((R.trace() - 1) / 2);
+        // Eigen converts through a quaternion here, avoiding both acos domain
+        // errors and the sin(theta) singularity at theta == pi.
+        const Eigen::AngleAxisd angle_axis(R);
+        const double theta = angle_axis.angle();
         
         if (theta < 1e-10) {
-            return vee(R - Eigen::Matrix3d::Identity());
+            return 0.5 * vee(R - R.transpose());
         }
         
-        return vee((theta / (2 * sin(theta))) * (R - R.transpose()));
+        return theta * angle_axis.axis();
     }
 
     static Eigen::Matrix3d leftJacobian(const Eigen::Vector3d& w) {
