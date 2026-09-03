@@ -1,3 +1,5 @@
+> **NOTICE (2026-09-04):** Rotor-drag compensation and reproducible PX4 SITL tests are available on the `feature/drag_compensation` branch. Users and contributors are welcome to try it and share feedback.
+>
 > **Notice (2026-05-22):** I just released a ROS-decoupled refactoring branch (`refact-decouple`). Users and contributors are welcome to try it, report issues, and help improve the new modular controller architecture.
 
 # OMMPC-Controller
@@ -14,9 +16,10 @@
             - [OSQP](#osqp)
         - [Cloning the code and compiling](#cloning-the-code-and-compiling)
         - [Run the code](#run-the-code)
+        - [Coordinate frames](#coordinate-frames)
     - [Theory and parameters](#theory-and-parameters)
         - [Reading text trajectories](#reading-text-trajectories)
-        - [Theory and parameters](#theory-and-parameters)
+        - [On Manifold MPC](#on-manifold-mpc)
         - [Thrust Normalization](#thrust-normalization)
     - [Acknowledgment](#acknowledgment)
 
@@ -170,7 +173,7 @@ to return to manual control mode, or you can proceed directly to execute other c
 
 The finite state machine (FSM) that governs the controller's behavior is documented in [misc/state_machine.txt](misc/state_machine.txt). It describes all state transitions (HOVER, TAKEOFF, LAND, POLY_TRAJ, POINTS), global rules for MPC failure recovery, trigger auto-reset, and safe output handling.
 
-**Important:**
+### Coordinate frames
 
 The pose of Odometry is defined as forward x, left y, upward z (ENU). The nose of the aircraft points in the positive x-axis direction, and the throttle thrust direction is along the positive z-axis. They must be strictly aligned. If the coordinate frame is NED instead of ENU, the `enu_frame_` parameter in the `OMMPC_EXAMPLE` class must be set to `false`! 
 
@@ -193,7 +196,7 @@ ref_txt:
 &emsp; time_step: The sampling step size for the text trajectory. Special attention: The step size for MPC and the text reference trajectory must be consistent. This requires ensuring that **this parameter, `MPC_params/step_T` (the MPC step size), and the step in the script generating the text trajectory** are the same!  
 &emsp; ref_filename: The path to the text trajectory file, specified as a **relative path** relative to this project.
 
-### Theory and parameters
+### On Manifold MPC
 
 For the derivation with respect to the dynamic of quadrotors, refer to the file `OMMPC_derivation.pdf` in this repo.
 
