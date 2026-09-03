@@ -16,6 +16,7 @@
             - [OSQP](#osqp)
         - [Cloning the code and compiling](#cloning-the-code-and-compiling)
         - [Run the code](#run-the-code)
+        - [Reproducible PX4 SITL tests](#reproducible-px4-sitl-tests)
         - [Coordinate frames](#coordinate-frames)
     - [Theory and parameters](#theory-and-parameters)
         - [Reading text trajectories](#reading-text-trajectories)
@@ -40,6 +41,24 @@ Simulation with Gazebo and EGO-Planner-V2:
 Error analysis of realworld experiment with a Fast-Drone-250 quadrotor:
 
 ![Error analysis of realworld experiment with a Fast-Drone-250 quadrotor](misc/real_flight.png)
+
+Results for fixed- and variable-yaw polynomial tracking in PX4 SITL at peak
+reference speeds of 4, 8, 12, and 16 m/s are available in the [`misc`](misc)
+directory. The 16 m/s results are shown below. See
+[Reproducible PX4 SITL tests](#reproducible-px4-sitl-tests) for the test setup
+and instructions.
+
+16 m/s, fixed yaw:
+
+![16 m/s fixed-yaw polynomial tracking](misc/unified_fixed_yaw_poly_v16.png)
+
+16 m/s, variable yaw:
+
+![16 m/s variable-yaw polynomial tracking](misc/unified_variable_yaw_poly_v16.png)
+
+16 m/s, fixed yaw, with and without drag compensation:
+
+![16 m/s fixed-yaw drag-compensation comparison](misc/drag_compensation_comparison_fixed_yaw_poly_v16.png)
 
 ## Usage
 
@@ -173,6 +192,13 @@ to return to manual control mode, or you can proceed directly to execute other c
 
 The finite state machine (FSM) that governs the controller's behavior is documented in [misc/state_machine.txt](misc/state_machine.txt). It describes all state transitions (HOVER, TAKEOFF, LAND, POLY_TRAJ, POINTS), global rules for MPC failure recovery with a consecutive-failure counter to prevent state bounce, automatic trigger cleanup, safe output during idle, and thrust estimation gating during takeoff and landing.
 
+### Reproducible PX4 SITL tests
+
+The ROS test runner can be used directly in a native ROS1/PX4 environment. An
+optional pinned ROS Noetic/PX4 v1.13.3/Gazebo 11 environment is available under
+[`docker/sitl`](docker/sitl/README.md). Native and Docker operation are
+documented in the [SITL runner guide](test/README.md).
+
 ### Coordinate frames
 
 The pose of Odometry is defined as forward x, left y, upward z (ENU). The nose of the aircraft points in the positive x-axis direction, and the throttle thrust direction is along the positive z-axis. They must be strictly aligned. If the coordinate frame is NED instead of ENU, the `enu_frame` parameter in `params.yaml` must be set to `false`! 
@@ -222,6 +248,31 @@ MPC_params:
 &emsp; state_cost_exponential, input_cost_exponential: State/input error weight discount factor. The weight at step k is multiplied by exp{-k/total_steps * discount_factor}.  
 &emsp; max_bodyrate_xy, max_bodyrate_z: Maximum angular rate. It is recommended to set the z-component relatively smaller.  
 &emsp; min_thrust/max_thrust: Minimum/Maximum thrust (actually acceleration, unit: m/s^2)
+
+Rotor drag is modeled in the body frame as
+`F_drag = -R diag(d_h, d_h, d_v) R^T ((1 + c_p sqrt(|v|^2 + 0.02)) v)`. For
+this horizontally symmetric model, the reference feed-forward thrust, attitude,
+and body rates use the closed-form flatness transform from Section 4.2 of the
+GCOPTER thesis. The MPC state-transition matrix linearizes the same
+speed-scaled drag model; its velocity block includes the full Jacobian of the
+scaled velocity, and its attitude block includes the same speed multiplier.
+The related parameters are:
+
+- `drag_compensation/enable`: Enables both reference feed-forward compensation and the drag-aware MPC prediction model.
+- `drag_compensation/mass`: Vehicle mass in kg, used to convert force
+  coefficients to specific-drag coefficients.
+- `drag_compensation/speed_coefficient`: Nonlinear speed coefficient `c_p` in
+  s/m. Set it to zero for the linear-drag special case.
+- `drag_compensation/coefficients/horizontal`: Non-negative `d_h`, shared by the body x/y axes, in kg/s (equivalently N/(m/s)).
+- `drag_compensation/coefficients/vertical`: Non-negative body-z coefficient `d_v`, in kg/s. Drag compensation is disabled and both coefficients are zero in the default `params.yaml`; task-specific tuned values must be identified for the actual airframe.
+
+When `use_fix_yaw` is false, the controller solves for the Hopf fiber angle
+whose resulting body-x horizontal projection follows the horizontal velocity.
+The target angle passes through a second-order reference filter. Its optional
+`yaw_reference/max_rate` and `yaw_reference/max_acceleration` parameters set
+the fiber-rate and fiber-angular-acceleration limits independently of the MPC
+body-rate bound. Non-positive or omitted values preserve the legacy limits of
+`0.9 * max_bodyrate_z` and `4.0 * max_bodyrate_z`, respectively.
 
 
 ### Thrust Normalization

@@ -33,6 +33,8 @@ void OMMPCControllerCore::init(const ParameterSet &param)
   // Timing / yaw cache
   timing_feedback_ = 0.0;
   last_yaw_ = 0.0;
+  last_yaw_dot_ = 0.0;
+  yaw_reference_initialized_ = false;
   last_text_des_acc_.setZero();
   last_text_acc_.setZero();
   last_text_des_jerk_.setZero();
@@ -152,6 +154,9 @@ bool OMMPCControllerCore::setHoverReference(const Eigen::Vector4d &quad_pose)
 
   // Eigen::Vector4d(px, py, pz, yaw)
   const double yaw = quad_pose(3);
+  last_yaw_ = yaw;
+  last_yaw_dot_ = 0.0;
+  yaw_reference_initialized_ = true;
   const Eigen::Vector3d des_acc_in_world(0.0, 0.0, gravity_);
   const double thracc = gravity_;
 
@@ -193,6 +198,14 @@ bool OMMPCControllerCore::setTextReference(const ReferenceTrajectory &reference,
 
   const double t_step = param_.mpc.step_T;
   Eigen::Quaterniond last_q = odom.q;
+  if (!yaw_reference_initialized_)
+  {
+    last_yaw_ = start_yaw;
+    last_yaw_dot_ = 0.0;
+    yaw_reference_initialized_ = true;
+  }
+  double predicted_yaw = last_yaw_;
+  double predicted_yaw_dot = last_yaw_dot_;
 
   for (int i = 0; i < kDefaultHorizonSteps; ++i)
   {
@@ -221,14 +234,18 @@ bool OMMPCControllerCore::setTextReference(const ReferenceTrajectory &reference,
 
     double yaw = 0.0;
     double yaw_dot = 0.0;
-    // directly compute from tangent line of traj
+    // Compute the Hopf fiber angle that aligns body x with the trajectory tangent.
     if (!param_.controller.use_fix_yaw)
     {
+      calculateYaw(quad_velocity, quad_acc, t_step,
+                   predicted_yaw, predicted_yaw_dot);
+      yaw = predicted_yaw;
+      yaw_dot = predicted_yaw_dot;
       if (i == 0)
       {
-        last_yaw_ = start_yaw;
+        last_yaw_ = yaw;
+        last_yaw_dot_ = yaw_dot;
       }
-      calculateYaw(quad_velocity, quad_acc, Eigen::Vector3d::Zero(), t_step, yaw, yaw_dot);
     }
     // read yaw from reference
     // {
@@ -284,6 +301,14 @@ bool OMMPCControllerCore::setTrajectoryReference(const Trajectory &traj,
   double t = tstart;
 
   Eigen::Quaterniond last_quat = odom.q;
+  if (!yaw_reference_initialized_)
+  {
+    last_yaw_ = start_yaw;
+    last_yaw_dot_ = 0.0;
+    yaw_reference_initialized_ = true;
+  }
+  double predicted_yaw = last_yaw_;
+  double predicted_yaw_dot = last_yaw_dot_;
 
   for (int i = 0; i < kDefaultHorizonSteps; ++i)
   {
@@ -317,11 +342,15 @@ bool OMMPCControllerCore::setTrajectoryReference(const Trajectory &traj,
     double yaw_dot = 0.0;
     if (!param_.controller.use_fix_yaw)
     {
+      calculateYaw(vel_quad, acc_quad, t_step,
+                   predicted_yaw, predicted_yaw_dot);
+      yaw = predicted_yaw;
+      yaw_dot = predicted_yaw_dot;
       if (i == 0)
       {
-        last_yaw_ = start_yaw;
+        last_yaw_ = yaw;
+        last_yaw_dot_ = yaw_dot;
       }
-      calculateYaw(vel_quad, acc_quad, jerk_quad, t_step, yaw, yaw_dot);
     }
     // TODO: use yaw traj
 
@@ -418,10 +447,9 @@ double OMMPCControllerCore::angleDiff(double a, double b) const
 
 void OMMPCControllerCore::calculateYaw(const Eigen::Vector3d &velocity,
                                        const Eigen::Vector3d &acceleration,
-                                       const Eigen::Vector3d &jerk,
                                        double dt,
                                        double &yaw,
-                                       double &yawdot)
+                                       double &yawdot) const
 {
   const auto fiber_yaw = [this](const Eigen::Vector3d &vel,
                                 const Eigen::Vector3d &acc,
@@ -463,28 +491,50 @@ void OMMPCControllerCore::calculateYaw(const Eigen::Vector3d &velocity,
     return false;
   };
 
-  if (!fiber_yaw(velocity, acceleration, yaw))
+  double target_yaw = yaw;
+  const bool target_is_valid = fiber_yaw(velocity, acceleration, target_yaw);
+  const double yaw_error = target_is_valid ? angleDiff(target_yaw, yaw) : 0.0;
+  const double yaw_dot_limit = param_.controller.yaw_reference.max_rate > 0.0
+                                   ? param_.controller.yaw_reference.max_rate
+                                   : param_.mpc.max_bodyrate_z * 0.90;
+  const double yaw_acceleration_limit =
+      param_.controller.yaw_reference.max_acceleration > 0.0
+          ? param_.controller.yaw_reference.max_acceleration
+          : param_.mpc.max_bodyrate_z * 4.0;
+
+  double target_yaw_dot = 0.0;
+  if (std::fabs(yaw_error) > kAlmostZeroValueThreshold)
   {
-    yaw = last_yaw_;
-    yawdot = 0.0;
-    return;
+    const double braking_yaw_dot =
+        std::sqrt(2.0 * yaw_acceleration_limit * std::fabs(yaw_error));
+    target_yaw_dot = std::copysign(
+        std::min(yaw_dot_limit, braking_yaw_dot), yaw_error);
   }
 
-  double next_yaw = yaw;
-  const Eigen::Vector3d next_velocity =
-      velocity + acceleration * dt + 0.5 * jerk * dt * dt;
-  const Eigen::Vector3d next_acceleration = acceleration + jerk * dt;
-  if (fiber_yaw(next_velocity, next_acceleration, next_yaw))
+  const double yaw_dot_step = yaw_acceleration_limit * dt;
+  const double next_yaw_dot = yawdot + std::max(
+      -yaw_dot_step, std::min(yaw_dot_step, target_yaw_dot - yawdot));
+  double yaw_step = 0.5 * (yawdot + next_yaw_dot) * dt;
+  if (yaw_error * yaw_step > 0.0 &&
+      std::fabs(yaw_step) > std::fabs(yaw_error))
   {
-    const double yaw_dot_limit = param_.mpc.max_bodyrate_z * 0.90;
-    yawdot = std::max(-yaw_dot_limit,
-                      std::min(yaw_dot_limit, angleDiff(next_yaw, yaw) / dt));
+    yaw_step = yaw_error;
+    yawdot = 0.0;
   }
   else
   {
-    yawdot = 0.0;
+    yawdot = next_yaw_dot;
   }
-  last_yaw_ = yaw;
+
+  yaw += yaw_step;
+  if (yaw > M_PI)
+  {
+    yaw -= 2.0 * M_PI;
+  }
+  else if (yaw < -M_PI)
+  {
+    yaw += 2.0 * M_PI;
+  }
 }
 
 void OMMPCControllerCore::setStateMatricesAndBounds(int i,

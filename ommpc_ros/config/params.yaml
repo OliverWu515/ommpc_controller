@@ -31,6 +31,10 @@ drag_compensation:
 use_fix_yaw: true
 use_trajectory_ending_pos: true
 
+yaw_reference:
+    max_rate: 0.9
+    max_acceleration: 2.0
+
 MPC_params:
     step_T: 0.01
     # Cost on states

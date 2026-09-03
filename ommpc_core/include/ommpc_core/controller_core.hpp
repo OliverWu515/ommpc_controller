@@ -68,6 +68,8 @@ private:
 
   // calculate yaw
   double last_yaw_ = 0.0;
+  double last_yaw_dot_ = 0.0;
+  bool yaw_reference_initialized_ = false;
 
   // thrust estimation
   double thr2acc_ = 0.0;
@@ -91,10 +93,9 @@ private:
   double angleDiff(double a, double b) const;
   void calculateYaw(const Eigen::Vector3d &velocity,
                     const Eigen::Vector3d &acceleration,
-                    const Eigen::Vector3d &jerk,
                     double dt,
                     double &yaw,
-                    double &yawdot);
+                    double &yawdot) const;
 
   // core functions for MPC setup
   void setStateMatricesAndBounds(int i,

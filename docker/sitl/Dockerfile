@@ -49,9 +49,11 @@ RUN mkdir -p /catkin_ws/src
 COPY entrypoint.sh /usr/local/bin/ommpc-entrypoint
 COPY build_workspace.sh /usr/local/bin/ommpc-build
 COPY launch_px4_sitl.sh /usr/local/bin/ommpc-launch-px4
+COPY run_trial.sh /usr/local/bin/ommpc-run-trial
 RUN chmod +x /usr/local/bin/ommpc-entrypoint \
              /usr/local/bin/ommpc-build \
-             /usr/local/bin/ommpc-launch-px4
+             /usr/local/bin/ommpc-launch-px4 \
+             /usr/local/bin/ommpc-run-trial
 
 WORKDIR /catkin_ws
 ENTRYPOINT ["/usr/local/bin/ommpc-entrypoint"]

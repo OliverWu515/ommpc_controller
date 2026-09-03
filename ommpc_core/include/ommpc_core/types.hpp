@@ -145,6 +145,13 @@ struct ThrustNormalizationParams
   bool enable_estimation = true;
 };
 
+struct YawReferenceParams
+{
+  // Non-positive values preserve the legacy scaling from max_bodyrate_z.
+  double max_rate = 0.0;
+  double max_acceleration = 0.0;
+};
+
 struct DragCompensationParams
 {
   bool enable = false;
@@ -167,6 +174,7 @@ struct ControllerConfig
 
   TextReferenceConfig text_reference;
   ThrustNormalizationParams thrust_normalization;
+  YawReferenceParams yaw_reference;
 
   double takeoff_land_speed = 0.0;
   double takeoff_height = 0.0;

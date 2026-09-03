@@ -26,6 +26,28 @@ def rotate_vector(q, vector):
     )
 
 
+def advance_quaternion(quaternion, body_rate, time_step):
+    """Propagate a wxyz attitude with a constant body rate over a short interval."""
+    rate_norm = np.linalg.norm(body_rate)
+    if rate_norm <= np.finfo(float).eps or abs(time_step) <= np.finfo(float).eps:
+        return quaternion
+    half_angle = 0.5 * rate_norm * time_step
+    delta = np.concatenate(
+        ([np.cos(half_angle)], np.sin(half_angle) * body_rate / rate_norm)
+    )
+    w1, x1, y1, z1 = quaternion
+    w2, x2, y2, z2 = delta
+    result = np.array(
+        [
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        ]
+    )
+    return result / np.linalg.norm(result)
+
+
 def clamped_cubic_coefficients(waypoints, durations):
     """Return per-piece coefficients in the descending order expected by PolyTraj."""
     waypoints = np.asarray(waypoints, dtype=float)
@@ -131,6 +153,19 @@ def evaluate_polynomial_derivative(coefficient, time_samples, derivative_order):
     return result
 
 
+def rest_to_rest_septic_coefficient(start, end, duration):
+    """Return a seventh-order segment with zero velocity through jerk at both ends."""
+    start = np.asarray(start, dtype=float)
+    displacement = np.asarray(end, dtype=float) - start
+    ascending = np.zeros((8, 3))
+    ascending[0] = start
+    ascending[4] = 35.0 * displacement / duration**4
+    ascending[5] = -84.0 * displacement / duration**5
+    ascending[6] = 70.0 * displacement / duration**6
+    ascending[7] = -20.0 * displacement / duration**7
+    return ascending[::-1].T
+
+
 def polynomial_peak_speed(coefficients, durations):
     peak_speed = 0.0
     for coefficient, duration in zip(coefficients, durations):
@@ -184,6 +219,7 @@ def make_polynomial_message(
     vertical_drag,
     drag_speed_coefficient,
     thrust_to_weight_limit=1.30,
+    prepend_estimator_alignment=False,
 ):
     # A C3-continuous, three-dimensional route with zero velocity at both ends.
     waypoints = np.array(
@@ -242,7 +278,7 @@ def make_polynomial_message(
         return coefficients_for_scale(upper_scale, durations), durations, upper_scale
 
     # Leave more attitude/thrust margin as speed and aerodynamic load increase.
-    # The four test points use 4 m/s^2 at 8/12 m/s, 3 at 16 m/s, and 2 at 20 m/s.
+    # Use 4 m/s^2 through 12 m/s, 3 at 16 m/s, and 2 at 20 m/s.
     if target_peak_speed <= 12.0:
         maximum_reference_acceleration = 4.0
     elif target_peak_speed <= 16.0:
@@ -302,16 +338,6 @@ def make_polynomial_message(
             maximum_acceleration = candidate_acceleration
             maximum_thrust = candidate_thrust
 
-    msg = PolyTraj()
-    msg.drone_id = 0
-    msg.traj_id = 1
-    msg.start_time = start_time
-    msg.order = coefficients[0].shape[1] - 1
-    msg.duration = durations.astype(np.float32).tolist()
-    for coefficient in coefficients:
-        msg.coef_x.extend(coefficient[0].astype(np.float32).tolist())
-        msg.coef_y.extend(coefficient[1].astype(np.float32).tolist())
-        msg.coef_z.extend(coefficient[2].astype(np.float32).tolist())
     metadata = {
         "planned_horizontal_scale": float(horizontal_scale),
         "planned_time_scale": float(upper_time_scale),
@@ -323,7 +349,45 @@ def make_polynomial_message(
         "planned_max_acceleration_mps2": float(maximum_acceleration),
         "planned_max_feedforward_thrust_to_weight": float(maximum_thrust / 9.81),
     }
-    return msg, float(durations.sum()), metadata
+    tracking_duration = float(durations.sum())
+    message_coefficients = list(coefficients)
+    message_durations = durations
+    estimator_alignment_duration = 0.0
+    if prepend_estimator_alignment:
+        alignment_duration = 2.0
+        settling_duration = 2.0
+        alignment_start = waypoints[0]
+        alignment_peak = alignment_start + np.array([0.0, 0.0, 0.7])
+        prefix_coefficients = [
+            rest_to_rest_septic_coefficient(
+                alignment_start, alignment_peak, alignment_duration
+            ),
+            rest_to_rest_septic_coefficient(
+                alignment_peak, alignment_start, alignment_duration
+            ),
+            rest_to_rest_septic_coefficient(
+                alignment_start, alignment_start, settling_duration
+            ),
+        ]
+        prefix_durations = np.array(
+            [alignment_duration, alignment_duration, settling_duration]
+        )
+        message_coefficients = prefix_coefficients + message_coefficients
+        message_durations = np.concatenate((prefix_durations, durations))
+        estimator_alignment_duration = float(prefix_durations.sum())
+        metadata["estimator_alignment_prefix_duration_s"] = estimator_alignment_duration
+
+    msg = PolyTraj()
+    msg.drone_id = 0
+    msg.traj_id = 1
+    msg.start_time = start_time
+    msg.order = coefficients[0].shape[1] - 1
+    msg.duration = message_durations.astype(np.float32).tolist()
+    for coefficient in message_coefficients:
+        msg.coef_x.extend(coefficient[0].astype(np.float32).tolist())
+        msg.coef_y.extend(coefficient[1].astype(np.float32).tolist())
+        msg.coef_z.extend(coefficient[2].astype(np.float32).tolist())
+    return msg, tracking_duration, estimator_alignment_duration, metadata
 
 
 class TrialRunner:
@@ -386,8 +450,13 @@ class TrialRunner:
         actual_velocity = np.array(
             [odom.twist.twist.linear.x, odom.twist.twist.linear.y, odom.twist.twist.linear.z]
         )
+        actual_body_rate = np.array(
+            [odom.twist.twist.angular.x, odom.twist.twist.angular.y, odom.twist.twist.angular.z]
+        )
         if self._velocity_in_body_frame:
             actual_velocity = rotate_vector(odom.pose.pose.orientation, actual_velocity)
+        odom_stamp = odom.header.stamp.to_sec()
+        actual_position += actual_velocity * (stamp - odom_stamp)
         reference_quaternion = np.array(
             [
                 msg.pose.pose.orientation.w,
@@ -404,6 +473,9 @@ class TrialRunner:
                 odom.pose.pose.orientation.z,
             ]
         )
+        actual_quaternion = advance_quaternion(
+            actual_quaternion, actual_body_rate, stamp - odom_stamp
+        )
 
         sample = np.concatenate(
             (
@@ -415,9 +487,13 @@ class TrialRunner:
                 np.full(4, np.nan) if control_command is None else control_command,
                 reference_quaternion,
                 actual_quaternion,
+                actual_body_rate,
+                [odom_stamp],
             )
         )
         with self._lock:
+            if self._samples and stamp <= self._samples[-1][0]:
+                return
             self._samples.append(sample)
 
     def state(self):
@@ -455,9 +531,14 @@ def compute_metrics(
     horizontal_drag,
     vertical_drag,
     drag_speed_coefficient,
+    max_bodyrate_xy,
+    max_bodyrate_z,
 ):
     if samples.ndim != 2 or samples.shape[0] < 20:
         raise RuntimeError("too few synchronized samples: {}".format(samples.shape[0]))
+    samples = samples[np.concatenate(([True], np.diff(samples[:, 0]) > 0.0))]
+    if samples.shape[0] < 20:
+        raise RuntimeError("too few samples with increasing timestamps")
     reference_velocity_all = samples[:, 7:10]
     reference_time_all = samples[:, 0] - samples[0, 0]
     reference_acceleration_all = np.gradient(
@@ -545,9 +626,46 @@ def compute_metrics(
                 "command_max_abs_bodyrate_xy_radps": float(np.abs(body_rate[:, :2]).max()),
                 "command_max_abs_bodyrate_z_radps": float(np.abs(body_rate[:, 2]).max()),
                 "command_bodyrate_xy_limit_fraction": float(
-                    np.mean(np.any(np.abs(body_rate[:, :2]) >= 5.99, axis=1))
+                    np.mean(
+                        np.any(
+                            np.abs(body_rate[:, :2]) >= 0.999 * max_bodyrate_xy,
+                            axis=1,
+                        )
+                    )
                 ),
-                "command_bodyrate_z_limit_fraction": float(np.mean(np.abs(body_rate[:, 2]) >= 3.99)),
+                "command_bodyrate_z_limit_fraction": float(
+                    np.mean(np.abs(body_rate[:, 2]) >= 0.999 * max_bodyrate_z)
+                ),
+            }
+        )
+    if samples.shape[1] >= 28 and np.any(valid_control):
+        actual_body_rate = samples[:, 25:28]
+        metrics.update(
+            {
+                "actual_max_abs_bodyrate_xy_radps": float(
+                    np.abs(actual_body_rate[:, :2]).max()
+                ),
+                "actual_max_abs_bodyrate_z_radps": float(
+                    np.abs(actual_body_rate[:, 2]).max()
+                ),
+                "command_actual_bodyrate_axis_rmse_radps": np.sqrt(
+                    np.mean(
+                        (control_command[:, 1:4] - actual_body_rate[valid_control]) ** 2,
+                        axis=0,
+                    )
+                ).tolist(),
+            }
+        )
+    if samples.shape[1] >= 29:
+        synchronization_offset = samples[:, 28] - samples[:, 0]
+        metrics.update(
+            {
+                "odom_reference_sync_offset_abs_mean_s": float(
+                    np.mean(np.abs(synchronization_offset))
+                ),
+                "odom_reference_sync_offset_abs_max_s": float(
+                    np.max(np.abs(synchronization_offset))
+                ),
             }
         )
     if samples.shape[1] >= 25:
@@ -654,6 +772,10 @@ def write_results(output, samples, metrics, arguments, trajectory_metadata=None)
                 "actual_qx",
                 "actual_qy",
                 "actual_qz",
+                "actual_bodyrate_x_radps",
+                "actual_bodyrate_y_radps",
+                "actual_bodyrate_z_radps",
+                "actual_stamp",
             ]
         )
         writer.writerows(samples.tolist())
@@ -684,11 +806,16 @@ def main():
     parser.add_argument("--trial-duration", type=float)
     parser.add_argument("--warmup", type=float, default=0.5)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--world-velocity", action="store_true")
     args = parser.parse_args(rospy.myargv()[1:])
 
     rospy.init_node("ommpc_sitl_test_runner")
-    runner = TrialRunner(not args.world_velocity)
+    velocity_in_body_frame = rospy.get_param("/ommpc_controller/vel_in_body")
+    text_reference_enabled = rospy.get_param("/ommpc_controller/ref_txt/enable")
+    if args.trajectory == "poly" and text_reference_enabled:
+        raise RuntimeError("poly trajectory requires ref_txt/enable to be false")
+    if args.trajectory == "horizontal-circle" and not text_reference_enabled:
+        raise RuntimeError("horizontal-circle trajectory requires ref_txt/enable to be true")
+    runner = TrialRunner(velocity_in_body_frame)
     wait_until(
         lambda: runner.state() is not None and runner.state().connected,
         30.0,
@@ -700,13 +827,29 @@ def main():
     rospy.wait_for_service("/mavros/param/set", timeout=15.0)
     set_mode = rospy.ServiceProxy("/mavros/set_mode", SetMode)
     set_param = rospy.ServiceProxy("/mavros/param/set", ParamSet)
-    for parameter_name in ("COM_RC_IN_MODE", "COM_RCL_EXCEPT"):
-        response = set_param(
-            param_id=parameter_name,
-            value=ParamValue(integer=4, real=0.0),
-        )
-        if not response.success:
-            raise RuntimeError("failed to set PX4 parameter {}".format(parameter_name))
+
+    def set_px4_parameter(parameter_name, parameter_value):
+        deadline = time.monotonic() + 10.0
+        while not rospy.is_shutdown() and time.monotonic() < deadline:
+            try:
+                response = set_param(
+                    param_id=parameter_name,
+                    value=ParamValue(integer=parameter_value, real=0.0),
+                )
+                if response.success:
+                    return
+            except rospy.ServiceException:
+                pass
+            rospy.rostime.wallsleep(0.25)
+        raise RuntimeError("failed to set PX4 parameter {}".format(parameter_name))
+
+    # Disable RC requirements that are not present in headless SITL.
+    px4_parameters = (
+        ("COM_RC_IN_MODE", 4),
+        ("COM_RCL_EXCEPT", 4),
+    )
+    for parameter_name, parameter_value in px4_parameters:
+        set_px4_parameter(parameter_name, parameter_value)
     dynamic = DynamicReconfigureClient("/ommpc_controller", timeout=15.0)
     dynamic.update_configuration(
         {"command_or_hover": False, "land_enabled": False, "takeoff_enabled": False}
@@ -740,6 +883,7 @@ def main():
         runner.begin_recording(start, duration)
         dynamic.update_configuration({"command_or_hover": True})
         trajectory_finished = lambda: rospy.Time.now().to_sec() >= start + duration
+        completion_timeout = duration + 5.0
     else:
         start_time = rospy.Time.now() + rospy.Duration(1.0)
         drag_enabled = rospy.get_param("/ommpc_controller/drag_compensation/enable")
@@ -752,7 +896,7 @@ def main():
         drag_speed_coefficient = rospy.get_param(
             "/ommpc_controller/drag_compensation/speed_coefficient"
         ) if drag_enabled else 0.0
-        message, duration, trajectory_metadata = make_polynomial_message(
+        message, duration, estimator_alignment_duration, trajectory_metadata = make_polynomial_message(
             start_time,
             args.poly_peak_speed,
             takeoff_height,
@@ -763,16 +907,19 @@ def main():
             rospy.get_param(
                 "/ommpc_controller/sitl_test/max_reference_thrust_to_weight"
             ),
+            prepend_estimator_alignment=True,
         )
         if args.trial_duration is not None:
             duration = min(duration, args.trial_duration)
             trajectory_metadata["executed_duration_s"] = duration
         trajectory_publisher.publish(message)
         dynamic.update_configuration({"command_or_hover": True})
-        runner.begin_recording(start_time.to_sec(), duration)
-        trajectory_finished = lambda: rospy.Time.now() >= start_time + rospy.Duration(duration)
+        tracking_start_time = start_time + rospy.Duration(estimator_alignment_duration)
+        runner.begin_recording(tracking_start_time.to_sec(), duration)
+        trajectory_finished = lambda: rospy.Time.now() >= tracking_start_time + rospy.Duration(duration)
+        completion_timeout = duration + estimator_alignment_duration + 5.0
 
-    wait_until(trajectory_finished, duration + 5.0, "trajectory completion")
+    wait_until(trajectory_finished, completion_timeout, "trajectory completion")
     dynamic.update_configuration({"command_or_hover": False})
     rospy.sleep(0.5)
 
@@ -794,7 +941,10 @@ def main():
         horizontal_drag,
         vertical_drag,
         drag_speed_coefficient,
+        rospy.get_param("/ommpc_controller/MPC_params/max_bodyrate_xy"),
+        rospy.get_param("/ommpc_controller/MPC_params/max_bodyrate_z"),
     )
+    metrics["takeoff_height_m"] = takeoff_height
     metrics["thrust_model_estimation_enabled"] = rospy.get_param(
         "/ommpc_controller/thrust_model_estimation/enable"
     )

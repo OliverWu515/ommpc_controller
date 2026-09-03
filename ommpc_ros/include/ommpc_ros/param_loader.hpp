@@ -67,6 +67,9 @@ public:
     readEssentialParam(nh, "MPC_params/max_thrust", param.mpc.max_thrust);
     readEssentialParam(nh, "MPC_params/max_bodyrate_xy", param.mpc.max_bodyrate_xy);
     readEssentialParam(nh, "MPC_params/max_bodyrate_z", param.mpc.max_bodyrate_z);
+    nh.param("yaw_reference/max_rate", param.controller.yaw_reference.max_rate, 0.0);
+    nh.param("yaw_reference/max_acceleration",
+             param.controller.yaw_reference.max_acceleration, 0.0);
     readEssentialParam(
         nh, "MPC_params/state_cost_exponential", param.mpc.state_cost_exponential);
     readEssentialParam(
