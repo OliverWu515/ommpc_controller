@@ -1,0 +1,23 @@
+services:
+  ommpc-sitl:
+    build:
+      context: .
+      args:
+        PX4_REF: v1.13.3
+        OSQP_REF: release-0.6.3
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+    image: ommpc-controller:sitl-noetic-px4-v1.13.3
+    environment:
+      ROS_MASTER_URI: http://127.0.0.1:11311
+    volumes:
+      - ../..:/catkin_ws/src/ommpc_controller
+      - catkin-build:/catkin_ws/build
+      - catkin-devel:/catkin_ws/devel
+    stdin_open: true
+    tty: true
+
+volumes:
+  catkin-build:
+  catkin-devel:
