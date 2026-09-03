@@ -37,6 +37,7 @@ enum Exec_Traj_State_t
 class OMMPC_EXAMPLE{
 private:
     ros::Subscriber odom_sub_, imu_sub_, state_sub_, mpc_traj_sub_;
+    ros::Publisher reference_pub_;
     ros::Timer exec_timer_;
     mavros_msgs::State state_;
     Odom_Data_t odom_data_;
@@ -127,13 +128,36 @@ private:
         ref_point.yaw_rate = yaw_rate;
     }
 
+    void publishCurrentReference(const ros::Time &stamp)
+    {
+        ommpc_core::ControllerState reference;
+        if (!ommpc_controller_.getDesiredState(reference))
+        {
+            return;
+        }
+
+        nav_msgs::Odometry msg;
+        msg.header.stamp = stamp;
+        msg.header.frame_id = "map";
+        msg.child_frame_id = "reference";
+        msg.pose.pose.position.x = reference.p.x();
+        msg.pose.pose.position.y = reference.p.y();
+        msg.pose.pose.position.z = reference.p.z();
+        msg.pose.pose.orientation.w = reference.q.w();
+        msg.pose.pose.orientation.x = reference.q.x();
+        msg.pose.pose.orientation.y = reference.q.y();
+        msg.pose.pose.orientation.z = reference.q.z();
+        msg.twist.twist.linear.x = reference.v.x();
+        msg.twist.twist.linear.y = reference.v.y();
+        msg.twist.twist.linear.z = reference.v.z();
+        reference_pub_.publish(msg);
+    }
+
     void execFSMCallback(const ros::TimerEvent &e){
         if (!ros::ok())
         {
             return;
         }
-        exec_timer_.stop();
-
         Controller_Output_t u;
         bool ret;
         ros::Time now_time = ros::Time::now();
@@ -425,6 +449,10 @@ private:
         {
             consecutive_failures_ = 0;
             mavros_interface_.publishAttitudeTarget(u);
+            if (state_.armed && state_.mode == mavros_msgs::State::MODE_PX4_OFFBOARD)
+            {
+                publishCurrentReference(now_time);
+            }
         }
         else
         {
@@ -456,10 +484,6 @@ private:
         if(state_.mode == mavros_msgs::State::MODE_PX4_OFFBOARD && state_.armed == true && exec_traj_state_ != TAKEOFF && exec_traj_state_ != LAND)
         {
             ommpc_controller_.estimateThrustModel(imu_data_.a, now_s);
-        }
-        if (ros::ok())
-        {
-            exec_timer_.start();
         }
     }
 
@@ -509,6 +533,7 @@ public:
         odom_sub_ = nh.subscribe<nav_msgs::Odometry>("/mavros/local_position/odom", 10, &OMMPC_EXAMPLE::odomCallback, this);
         imu_sub_ = nh.subscribe<sensor_msgs::Imu>("/mavros/imu/data", 10, &OMMPC_EXAMPLE::IMUCallback, this);
         state_sub_ = nh.subscribe<mavros_msgs::State>("/mavros/state", 10, &OMMPC_EXAMPLE::stateCallback, this);
+        reference_pub_ = nh.advertise<nav_msgs::Odometry>("reference", 10);
         mpc_traj_sub_ = nh.subscribe<traj_utils::PolyTraj>("/drone_0_planning/trajectory",
                                         100,
                                         boost::bind(&Trajectory_Data_t::feedFromTrajUtils, &trajectory_data_, _1),

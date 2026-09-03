@@ -40,6 +40,7 @@ public:
 
   double getTimingMs() const;
   const std::string &getLastError() const;
+  bool getDesiredState(ControllerState &state) const;
 
 private:
   static constexpr int kMaxStoredThrustSamples = 100;
@@ -50,6 +51,7 @@ private:
   static constexpr double kMaxEstimationDelayS = 0.045;
   static constexpr double kAlmostZeroValueThreshold = 1e-3;
   static constexpr double kMinNormalizedCollectiveThrust = 0.1;
+  static constexpr double kDragSpeedSquaredSmoothing = 0.02;
 
   const double gravity_ = 9.81;
 
@@ -58,13 +60,14 @@ private:
 
   // params
   ParameterSet param_;
+  // D / m in body coordinates. It is zero when drag compensation is disabled.
+  Eigen::Matrix3d specific_drag_matrix_ = Eigen::Matrix3d::Zero();
 
   // for MPC timing
   double timing_feedback_ = 0.0;
 
   // calculate yaw
   double last_yaw_ = 0.0;
-  double last_yaw_dot_ = 0.0;
 
   // thrust estimation
   double thr2acc_ = 0.0;
@@ -86,15 +89,26 @@ private:
 
   // Helper functions for calculating yaw and yawdot
   double angleDiff(double a, double b) const;
-  void calculateYaw(Eigen::Vector3d vel, double dt, double &yaw, double &yawdot);
+  void calculateYaw(const Eigen::Vector3d &velocity,
+                    const Eigen::Vector3d &acceleration,
+                    const Eigen::Vector3d &jerk,
+                    double dt,
+                    double &yaw,
+                    double &yawdot);
 
   // core functions for MPC setup
   void setStateMatricesAndBounds(int i,
                                  const Eigen::Quaterniond &q,
+                                 const Eigen::Vector3d &velocity,
                                  const Eigen::Vector3d &omg,
                                  double t_step,
                                  double thracc);
   // reference computation
+  void computeDragCompensatedInput(
+      const Eigen::Vector3d &velocity, const Eigen::Vector3d &acceleration,
+      const Eigen::Vector3d &jerk, double yaw, double yawd,
+      const Eigen::Quaterniond &att_est, Eigen::Quaterniond &att,
+      Eigen::Vector3d &omg, double &thracc) const;
   void computeFlatInputwithHopfFibration(const Eigen::Vector3d &thr_acc,
                                          const Eigen::Vector3d &jer,
                                          double yaw,

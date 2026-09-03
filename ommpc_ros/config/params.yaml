@@ -10,6 +10,22 @@ ref_txt:
     ref_filename: "/traj/circle.txt"
 
 hover_percentage: 0.705
+thrust_model_estimation:
+    enable: true
+
+# F_drag = -R * diag(dh, dh, dv) * R^T * sigma(||v||) * v.
+# mass is in kg; coefficients are in kg/s (equivalently N/(m/s)).
+# The default controller keeps drag compensation disabled; tuned task-specific
+# overlays can enable it and supply coefficients identified for the airframe.
+drag_compensation:
+    enable: false
+    mass: 1.5
+    # Speed scaling: sigma = 1 + c_p sqrt(||v||^2 + 0.02), used consistently
+    # by the reference flatness transform and the MPC drag Jacobians. Units: s/m.
+    speed_coefficient: 0.0
+    coefficients:
+        horizontal: 0.0
+        vertical: 0.0
 
 # NMPC
 use_fix_yaw: true

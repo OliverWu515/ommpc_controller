@@ -142,6 +142,19 @@ struct TextReferenceConfig
 struct ThrustNormalizationParams
 {
   double hover_percentage = 0.25;
+  bool enable_estimation = true;
+};
+
+struct DragCompensationParams
+{
+  bool enable = false;
+  double mass = 1.0;  // kg
+  // D = diag(d_h, d_h, d_v), in kg/s (N/(m/s)).
+  double horizontal_coefficient = 0.0;
+  double vertical_coefficient = 0.0;
+  // Speed scaling: sigma(||v||) = 1 + c_p sqrt(||v||^2 + epsilon).
+  // c_p is in s/m and is used by both flatness and the MPC drag Jacobians.
+  double speed_coefficient = 0.0;
 };
 
 struct ControllerConfig
@@ -163,6 +176,7 @@ struct ParameterSet
 {
   MPCParams mpc;
   ControllerConfig controller;
+  DragCompensationParams drag_compensation;
 };
 
 } // namespace ommpc_core

@@ -71,3 +71,8 @@ add_dependencies(ommpc_example_node
   ${PROJECT_NAME}_gencfg
   ${catkin_EXPORTED_TARGETS}
 )
+
+catkin_install_python(PROGRAMS
+  scripts/sitl_test_runner.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)

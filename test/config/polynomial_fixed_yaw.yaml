@@ -1,0 +1,46 @@
+vel_in_body: true
+enu_frame: true
+
+takeoff_height: 1.0
+takeoff_land_speed: 1.0
+
+ref_txt:
+    enable: false
+    time_step: 0.01
+    ref_filename: "/traj/circle.txt"
+
+thrust_model_estimation:
+    enable: false
+
+hover_percentage: 0.705
+
+drag_compensation:
+    enable: true
+    mass: 1.535
+    speed_coefficient: 0.055
+    coefficients:
+        horizontal: 0.35
+        vertical: 0.35
+
+sitl_test:
+    max_reference_thrust_to_weight: 1.50
+
+use_fix_yaw: true
+use_trajectory_ending_pos: true
+
+MPC_params:
+    step_T: 0.01
+    Q_pos_xy: 900.0
+    Q_pos_z: 1600.0
+    Q_velocity: 15.0
+    Q_attitude_rp: 120.0
+    Q_attitude_yaw: 40.0
+    R_thrust: 0.5
+    R_pitchroll: 3.5
+    R_yaw: 0.6
+    state_cost_exponential: 0.8
+    input_cost_exponential: 0.5
+    max_bodyrate_xy: 6.0
+    max_bodyrate_z: 4.0
+    min_thrust: 1.0
+    max_thrust: 30.0

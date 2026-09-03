@@ -28,7 +28,7 @@ If you feel my work has been helpful, please give it a star—thank you!
 
 Also, the control performance is not yet optimal, so if anyone is interested in helping with debugging and parameter tuning, I would be greatly appreciated!
 
-**TODO: add parameters of rotor drag**
+The following two results were produced before the task-specific parameter tuning in this branch and with drag compensation disabled. The corresponding default parameters are in [`params.yaml`](ommpc_ros/config/params.yaml).
 
 Simulation with Gazebo and EGO-Planner-V2:
 

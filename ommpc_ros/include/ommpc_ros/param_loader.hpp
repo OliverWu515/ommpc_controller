@@ -42,6 +42,19 @@ public:
     readEssentialParam(nh, "ref_txt/ref_filename", param.controller.text_reference.ref_filename);
     readEssentialParam(
         nh, "hover_percentage", param.controller.thrust_normalization.hover_percentage);
+    nh.param("thrust_model_estimation/enable",
+             param.controller.thrust_normalization.enable_estimation, true);
+    nh.param("drag_compensation/enable", param.drag_compensation.enable, false);
+    if (param.drag_compensation.enable)
+    {
+      readEssentialParam(nh, "drag_compensation/mass", param.drag_compensation.mass);
+      readEssentialParam(nh, "drag_compensation/coefficients/horizontal",
+                         param.drag_compensation.horizontal_coefficient);
+      readEssentialParam(nh, "drag_compensation/coefficients/vertical",
+                         param.drag_compensation.vertical_coefficient);
+      nh.param("drag_compensation/speed_coefficient",
+               param.drag_compensation.speed_coefficient, 0.0);
+    }
     readEssentialParam(nh, "MPC_params/Q_pos_xy", param.mpc.Q_pos_xy);
     readEssentialParam(nh, "MPC_params/Q_pos_z", param.mpc.Q_pos_z);
     readEssentialParam(nh, "MPC_params/Q_attitude_rp", param.mpc.Q_attitude_rp);

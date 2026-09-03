@@ -3,7 +3,7 @@
 namespace ommpc_ros
 {
 
-static constexpr double kMaxOutputNormalizedThrust = 0.9;
+static constexpr double kMaxOutputNormalizedThrust = 0.95;
 static constexpr double kMinOutputNormalizedThrust = 0.04;
 
 void MavrosCommandInterface::init(ros::NodeHandle &nh)
