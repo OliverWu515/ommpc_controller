@@ -172,7 +172,7 @@ catkin_make
 ```bash
 source devel/setup.bash
 roslaunch px4 mavros_posix_sitl.launch
-roslaunch ommpc_controller px4_example.launch
+roslaunch ommpc_ros px4_example.launch
 ```
 
 Takeoff: First, type the following command in the terminal:
@@ -214,7 +214,6 @@ If reading text trajectories for testing is enabled, after entering command cont
 x-position y-position z-position x-velocity y-velocity z-velocity yaw yaw-rate
 ```
 In the `traj` folder, several scripts are stored for generating text trajectories as needed.  
-Note: The text trajectory must not contain empty lines at the end, otherwise a memory error may occur and lead to a crash!
 
 **Related parameters**:  
 ref_txt:   
